@@ -11,89 +11,52 @@ const passport = require('passport')
 const flash = require('express-flash')
 const session = require('express-session')
 const methodOverride = require('method-override')
+var { User } = require('./model/models.js')
 
-
-const initializePassport = require('./passport-config')
-initializePassport(
-    passport,
-    email => users.find(user => user.email === email),
-    id => users.find(user => user.id === id),
-)
+setupPassport = require('./auth/passport.js')
 
 const users = []
 
 
 app.set('view-engine', 'ejs')
 app.use(express.json())
-app.use(express.urlencoded({ extended: false}))
+app.use(express.urlencoded({ extended: false }))
 app.use(flash())
 app.use(session({
-    secret: process.env.SESSION_SECRET,
+    secret: process.env.SESSION_SECRET || "s3cr3t",
     resave: false,
     saveUninitialized: false
 }))
-app.use(passport.initialize())
-app.use(passport.session())
+
+setupPassport(app)
 app.use(methodOverride('_method'))
 app.use(express.static("public"))
 
-app.get('/', checkAuthenticated, (req, res) => {
-    res.render("index.ejs", { name: req.user.name })
-})
+app.use("/", require("./routes/login"));
+app.use("/company", require("./routes/company"));
 
-app.get('/login', checkNotAuthenticated, (req, res) => {
-    res.render('login.ejs')
-})
+// TODO remove for prod
+var salt = bcrypt.genSaltSync(10)
+var hashedPassword = bcrypt.hashSync("password", salt)
 
+User.sync().then(() => {
 
-app.post('/login', checkNotAuthenticated, passport.authenticate('local', {
-    successRedirect: '/',
-    failureRedirect: '/login',
-    failureFlash: true
-}))
-
-app.get('/register',checkNotAuthenticated, (req, res) => {
-    res.render('register.ejs')
-})
-
-app.post('/register', checkNotAuthenticated, async (req, res) => {
-    try {
-        const hashedPassword = await bcrypt.hash(req.body.password, 10)
-        users.push({
-            id: Date.now().toString(),
-            name: req.body.name,
-            email: req.body.email,
-            password: hashedPassword
-            
-        })
-        res.redirect('/login')
-    } catch {
-        res.redirect('/register')
-
-    }
-    console.log(users)
-})
-
-app.delete('/logout', (req, res) => {
-    req.logout(function(err) {
-        if (err) { return next(err); }
-    res.redirect('/login')
+    User.findOrCreate({
+        where: {
+            id: 0
+        },
+        defaults: {
+            id: 0,
+            firstname: "Admin",
+            lastname: "Admin",
+            email: "admin@admin.com",
+            salt: salt,
+            password: hashedPassword,
+            account_type: "admin"
+        }
     })
-  })
 
-function checkAuthenticated(req, res, next) 
-{
-    if (req.isAuthenticated()) 
-    {
-        return next()
-    }    
-    res.redirect('/login')
-}
-function checkNotAuthenticated(req, res, next) {
-    if (req.isAuthenticated()) 
-    {
-     return res.redirect('/') 
-    }
-    next()
-}
+})
+// end TODO
+
 app.listen(3000)
